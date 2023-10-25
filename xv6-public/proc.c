@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "psched.h"
 
 struct {
   struct spinlock lock;
@@ -531,4 +532,43 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+
+int
+nice(int n)
+{
+  if (n < 0 || n > 20) {
+    printf("nice value out of bounds\n");
+    return -1;
+  }
+  struct proc *currproc = myproc();
+  int prevn = currproc->nice;
+  currproc->nice = n;
+  return prevn;
+}
+
+int
+getschedstate(struct pschedinfo *pschedinfo)
+{
+  int i = 0;
+  struct proc *p;
+
+  if (pschedinfo == 0) return -1;
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if (p->state != RUNNING) {
+     pschedinfo->inuse[i] = 0;
+     i++;
+     continue; 
+    }
+    pschedinfo->inuse[i] = 1;
+    pschedinfo->priority[i] = p->priority;
+    pschedinfo->nice[i] = p->nice;
+    pschedinfo->pid[i] = p->pid;
+    pschedinfo->ticks[i] = p->ticks;
+    i++;
+  }
+
+  return 0;
 }
