@@ -52,6 +52,8 @@ struct proc {
   int priority;                // Process priority
   int nice;                    // Nice value of process
   int ticks;                   // Number of ticks process has accumulated
+  int cpu;                     // Number of decayed ticks process has accumulated
+  int sleepticks;              // Sleep until sleepticks
 };
 
 // Process memory is laid out contiguously, low addresses first:

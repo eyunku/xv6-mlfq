@@ -21,6 +21,12 @@ extern void trapret(void);
 
 static void wakeup1(void *chan);
 
+int
+decay(int cpu)
+{
+  return cpu / 2;
+}
+
 void
 pinit(void)
 {
@@ -216,6 +222,10 @@ fork(void)
   acquire(&ptable.lock);
 
   np->state = RUNNABLE;
+  np->cpu = 0;
+  np->ticks = 0;
+  np->nice = 0;
+  np->priority = 0;
 
   release(&ptable.lock);
 
@@ -333,8 +343,11 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+    int maxpriority = ptable.proc->priority;
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      maxpriority = (p->priority > maxpriority) ? p->priority : maxpriority;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
+      if(p->state != RUNNABLE || p->cpu < maxpriority)
         continue;
 
       // Switch to chosen process.  It is the process's job
@@ -380,6 +393,26 @@ sched(void)
   intena = mycpu()->intena;
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
+}
+
+// Update CPU ticks
+void
+update(void)
+{
+  struct proc *p;
+  struct proc *curproc = myproc();
+
+  // Decay every 100 ticks
+  if (!ticks % 100) {
+    for (p = ptable.proc; p< &ptable.proc[NPROC]; p++) {
+      p->cpu = decay(p->cpu);
+      p->priority = p->cpu/2 + p->nice;
+    }
+  }
+
+  // Update ticks
+  curproc->ticks++;
+  curproc->cpu++;
 }
 
 // Give up the CPU for one scheduling round.
@@ -461,7 +494,7 @@ wakeup1(void *chan)
   struct proc *p;
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == SLEEPING && p->chan == chan)
+    if(p->state == SLEEPING && p->chan == chan && p->sleepticks <= ticks)
       p->state = RUNNABLE;
 }
 
@@ -539,7 +572,7 @@ int
 nice(int n)
 {
   if (n < 0 || n > 20) {
-    printf("nice value out of bounds\n");
+    cprintf("nice value out of bounds\n");
     return -1;
   }
   struct proc *currproc = myproc();

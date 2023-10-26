@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "psched.h"
 
 int
 sys_fork(void)
@@ -61,13 +62,18 @@ sys_sleep(void)
 {
   int n;
   uint ticks0;
+  struct proc *curproc;
+
+  curproc = myproc();
 
   if(argint(0, &n) < 0)
     return -1;
+  
+  curproc->sleepticks = n + ticks;
   acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){
-    if(myproc()->killed){
+    if(curproc->killed){
       release(&tickslock);
       return -1;
     }
@@ -91,7 +97,8 @@ sys_uptime(void)
 }
 
 
-int sys_nice(void)
+int
+sys_nice(void)
 {
   int n;
 
@@ -101,3 +108,15 @@ int sys_nice(void)
 }
 
 
+int
+sys_getschedstate(void)
+{
+  struct pschedinfo *pschedinfo;
+
+  if(argptr(0, (void*)&pschedinfo, sizeof(*pschedinfo)) < 0) {
+    cprintf("could not access pschedinfo");
+    return -1;
+  }
+
+  return getschedstate(pschedinfo);
+}
