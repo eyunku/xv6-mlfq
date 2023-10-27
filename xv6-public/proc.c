@@ -95,6 +95,11 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->priority = 0;
+  p->nice = 0;
+  p->ticks = 0;
+  p->cpu = 0;
+  p->sleepticks = 0;
 
   release(&ptable.lock);
 
@@ -226,6 +231,7 @@ fork(void)
   np->ticks = 0;
   np->nice = 0;
   np->priority = 0;
+  np->sleepticks = 0;
 
   release(&ptable.lock);
 
@@ -337,17 +343,34 @@ scheduler(void)
   struct cpu *c = mycpu();
   c->proc = 0;
   
+  int updatetick = -1;
   for(;;){
     // Enable interrupts on this processor.
     sti();
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    int maxpriority = ptable.proc->priority;
-    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-      maxpriority = (p->priority > maxpriority) ? p->priority : maxpriority;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE || p->cpu < maxpriority)
+      // Decay every 100 ticks
+      if (!(ticks % 100) && ticks != updatetick) {
+        struct proc *decayproc;
+        for (decayproc = ptable.proc; decayproc < &ptable.proc[NPROC]; decayproc++) {
+          // cprintf("decaying...\n");
+          if (decayproc->state == UNUSED) continue;
+          decayproc->cpu = decay(decayproc->cpu);
+          decayproc->priority = decayproc->cpu/2 + decayproc->nice;
+          // cprintf("new priority: %d\n", decayproc->priority);
+        }
+        updatetick = ticks;
+      }
+
+      // Determine minimum priority of MLFQ
+      int minpriority = __INT_MAX__;
+      struct proc *priorityproc;
+      for (priorityproc = ptable.proc; priorityproc < &ptable.proc[NPROC]; priorityproc++)
+        minpriority = (priorityproc->priority < minpriority && priorityproc->state == RUNNABLE) ? priorityproc->priority : minpriority;
+
+      if(p->state != RUNNABLE || p->priority > minpriority)
         continue;
 
       // Switch to chosen process.  It is the process's job
@@ -399,20 +422,8 @@ sched(void)
 void
 update(void)
 {
-  struct proc *p;
-  struct proc *curproc = myproc();
-
-  // Decay every 100 ticks
-  if (!ticks % 100) {
-    for (p = ptable.proc; p< &ptable.proc[NPROC]; p++) {
-      p->cpu = decay(p->cpu);
-      p->priority = p->cpu/2 + p->nice;
-    }
-  }
-
-  // Update ticks
-  curproc->ticks++;
-  curproc->cpu++;
+  myproc()->ticks++;
+  myproc()->cpu++;
 }
 
 // Give up the CPU for one scheduling round.
@@ -575,9 +586,9 @@ nice(int n)
     cprintf("nice value out of bounds\n");
     return -1;
   }
-  struct proc *currproc = myproc();
-  int prevn = currproc->nice;
-  currproc->nice = n;
+  struct proc *curproc = myproc();
+  int prevn = curproc->nice;
+  curproc->nice = n;
   return prevn;
 }
 
@@ -590,12 +601,11 @@ getschedstate(struct pschedinfo *pschedinfo)
   if (pschedinfo == 0) return -1;
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if (p->state != RUNNING) {
+    if (p->state == UNUSED)
      pschedinfo->inuse[i] = 0;
-     i++;
-     continue; 
-    }
-    pschedinfo->inuse[i] = 1;
+    else
+     pschedinfo->inuse[i] = 1;
+    
     pschedinfo->priority[i] = p->priority;
     pschedinfo->nice[i] = p->nice;
     pschedinfo->pid[i] = p->pid;
