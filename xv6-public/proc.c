@@ -355,11 +355,9 @@ scheduler(void)
       if (!(ticks % 100) && ticks != updatetick) {
         struct proc *decayproc;
         for (decayproc = ptable.proc; decayproc < &ptable.proc[NPROC]; decayproc++) {
-          // cprintf("decaying...\n");
           if (decayproc->state == UNUSED) continue;
           decayproc->cpu = decay(decayproc->cpu);
           decayproc->priority = decayproc->cpu/2 + decayproc->nice;
-          // cprintf("new priority: %d\n", decayproc->priority);
         }
         updatetick = ticks;
       }
